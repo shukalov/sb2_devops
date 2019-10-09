@@ -1,0 +1,58 @@
+@Library('my-lib') _
+
+
+properties([parameters([
+        string(defaultValue: 'user1', description: 'Account', name: 'ACCOUNT', trim: true),
+])])
+
+
+node {
+    
+    def request = libraryResource 'properties'
+    def props = readProperties text: request
+    
+    try {
+        
+            stage('Clone encrypted file') {
+    
+                mGit.clone(props.enc_file_repo, 'file_dir')
+
+            }
+        
+            stage('Clone ansible') {
+                
+                mGit.clone(props.ansible_repo)
+            }
+        
+            stage('Change password') {
+                
+                withCredentials([usernamePassword(credentialsId: 'enc_file', passwordVariable: 'ENC_PASSWORD', usernameVariable: 'ENC_USERNAME')]) {
+                    
+                    sh "SB_PASSWORD_CHANGE_PATH='./file_dir/file.enc' SB_PASSWORD_CHANGE_PASSW=${ENC_PASSWORD} SB_PASSWORD_CHANGE_KEY=${params.ACCOUNT} SB_PASSWORD_CHANGE_SILENT=false ansible-playbook -i inventories/stage/ all.yml -v"
+                
+                }
+                
+            }
+        
+            stage('Commit changes') {
+                
+                def now = new Date()
+                DATETIME_COMMIT = now.format("yyyy.MM.dd-HH:mm:ss", TimeZone.getTimeZone('UTC'))
+    
+                mGit.commitPwd(DATETIME_COMMIT, dirname: 'file_dir', repo: props.enc_file_repo, credentialsId: 'ci-github')
+                
+            }
+        
+    } catch (e) {
+
+        echo "Произошлка ошибка ${e}"
+        
+    } finally {
+        
+            stage('Send email') {
+                
+                mMail.buildInfo(props.email)
+            
+            }
+    }
+}
